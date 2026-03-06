@@ -1,0 +1,72 @@
+GAT + Predictive Coding (PC-GAT)
+C’est un croisement vraiment frontier — combinons les deux frameworks formellement.
+
+Rappel : le neurone de Predictive Coding
+Dans un réseau PC hiérarchique, chaque couche ￼ contient deux types de nœuds :
+	∙	Neurones de représentation ￼ : la croyance courante sur l’état du nœud
+	∙	Neurones d’erreur ￼ : l’écart entre la croyance et la prédiction top-down
+
+\varepsilon_i^l = \mu_i^l - f^l(\mu_i^{l+1})
+
+où ￼ est le modèle génératif descendant (la “prédiction” que la couche ￼ fait sur la couche ￼). L’objectif global est de minimiser l’énergie libre variationnelle :
+
+\mathcal{F} = \sum_{l} \sum_i |\varepsilon_i^l|^2
+
+La dynamique est itérative : on alterne inférence (mise à jour des ￼) et apprentissage (mise à jour des poids), tout par règles locales.
+
+Construction d’un PC-GAT
+On greffe ce framework sur un graphe. Chaque nœud ￼ à la couche ￼ possède maintenant ￼.
+1. Prédiction top-down sur le graphe
+La couche ￼ génère une prédiction pour le nœud ￼ en agrégeant les représentations voisines de la couche supérieure :
+
+\hat{\mu}_i^l = f^l!\left(\sum_{j \in \mathcal{N}(i)} \alpha_{ij}^l, \mathbf{W}^l \mu_j^{l+1}\right)
+
+L’erreur de prédiction du nœud ￼ devient :
+
+\varepsilon_i^l = \mu_i^l - \hat{\mu}_i^l
+
+2. Attention guidée par la surprise
+C’est ici que ça devient intéressant. Plutôt que de calculer les scores d’attention uniquement à partir des features brutes, on peut les construire à partir des erreurs de prédiction :
+￼
+￼
+Interprétation : deux nœuds qui partagent une erreur similaire (une surprise commune) s’attirent mutuellement. Un voisin qui “surprend” beaucoup le nœud courant reçoit plus d’attention.
+3. Dynamique d’inférence (pas de backprop global)
+Les croyances ￼ sont mises à jour par descente de gradient locale sur ￼ :
+
+\dot{\mu}_i^l = -\varepsilon_i^l + \sum_{j \in \mathcal{N}(i)} \alpha_{ij}^{l-1} \cdot \left(\frac{\partial \hat{\mu}_j^{l-1}}{\partial \mu_i^l}\right)^\top \varepsilon_j^{l-1}
+
+Le premier terme corrige la croyance locale, le second propage les erreurs bottom-up des voisins pondérées par l’attention. La convergence de cette dynamique constitue l’inférence, avant même toute mise à jour des poids.
+4. Apprentissage local
+Une fois les ￼ convergés, les poids ￼ sont mis à jour par une règle de type Hebbian/PC :
+
+\Delta \mathbf{W}^l \propto \sum_i \varepsilon_i^l \cdot \left(\sum_{j \in \mathcal{N}(i)} \alpha_{ij}^l \mu_j^{l+1}\right)^\top
+
+Aucune rétropropagation globale n’est requise — tout est local à la couche.
+
+Schéma de la dynamique complète
+
+Couche l+1   μ_{l+1}  ──(f^l, W^l)──►  μ̂_i^l   (prédiction top-down)
+                                              │
+                                              ▼
+Couche l     μ_i^l   ────────────────►  ε_i^l = μ_i^l - μ̂_i^l
+                ▲                             │
+                │     correction locale        │  attention α_{ij} basée
+                └──────────────────────────────┘  sur les erreurs
+                         bottom-up
+
+
+Propriétés émergentes
+
+
+
+|Propriété                       |Mécanisme                                                               |
+|--------------------------------|------------------------------------------------------------------------|
+|**Attention par surprise**      |Les nœuds mal prédits reçoivent plus d’attention                        |
+|**Inférence itérative**         |Convergence des croyances avant l’apprentissage                         |
+|**Robustesse au bruit**         |Les erreurs aléatoires sont “absorbées” par la dynamique PC             |
+|**Plausibilité biologique**     |Règles locales, pas de backprop global                                  |
+|**Détection d’anomalies native**|Les nœuds atypiques génèrent des ![](claude-latex: "\varepsilon") élevés|
+
+Pourquoi c’est puissant
+Dans un GAT classique, l’attention est un instantané calculé en un seul passage feedforward. Dans un PC-GAT, l’attention évolue pendant l’inférence : au fil des itérations, les erreurs se redistribuent, les croyances convergent, et les poids d’attention reflètent une compréhension plus globale du graphe — un peu comme si le réseau “réfléchissait” avant de répondre.
+C’est une direction active de recherche, notamment dans le contexte des architectures bio-inspirées et de l’apprentissage sans backprop.​​​​​​​​​​​​​​​​
