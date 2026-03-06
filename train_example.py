@@ -97,9 +97,10 @@ def train_local_pc(
         output, all_errors, all_alpha = model(x, edge_index)
 
         # Collect beliefs per layer (forward returns only the last; rebuild list)
+        # Use the same top→bottom order as PCGAT.forward (reversed layers).
         all_mu = []
         mu_upper = x
-        for layer in model.layers:
+        for layer in reversed(model.layers):
             mu, errors, alpha = layer(
                 mu_upper=mu_upper,
                 edge_index=edge_index,

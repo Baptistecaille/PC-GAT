@@ -101,8 +101,8 @@ class PCGATLayer(nn.Module):
         self._init_weights()
 
     def _init_weights(self) -> None:
-        nn.init.xavier_uniform_(self.W.unsqueeze(0)).squeeze_(0)
-        nn.init.xavier_uniform_(self.a.view(1, -1)).squeeze_(0)
+        nn.init.xavier_uniform_(self.W)
+        nn.init.xavier_uniform_(self.a.view(1, -1))
 
     # ------------------------------------------------------------------
     # Core computations
@@ -237,7 +237,7 @@ class PCGATLayer(nn.Module):
             backprop.scatter_add_(0, src.unsqueeze(-1).expand_as(weighted_err), weighted_err)
 
             # Project through Wˡᵀ to match current layer dimensionality
-            delta = delta + backprop @ self.W  # [N, out_features]
+            delta = delta + backprop @ self.W.t()  # [N, out_features]
 
         mu_new = mu + self.inference_lr * delta
         return mu_new
@@ -434,8 +434,8 @@ class PCGAT(nn.Module):
 
         Returns:
             output:     Beliefs at the bottom layer      [N, layer_dims[0]]
-            all_errors: List of prediction errors per layer (bottom → top)
-            all_alpha:  List of attention weights per layer (bottom → top)
+            all_errors: List of prediction errors per layer (top → bottom)
+            all_alpha:  List of attention weights per layer (top → bottom)
         """
         all_mu: List[Tensor] = []
         all_errors: List[Tensor] = []
@@ -445,7 +445,10 @@ class PCGAT(nn.Module):
         errors_lower: Optional[Tensor] = None
         alpha_lower: Optional[Tensor] = None
 
-        for layer in self.layers:
+        # Process from the topmost layer (nearest to x) to the bottommost layer
+        # (nearest to output), i.e. in reverse index order so that the layer
+        # whose in_features == layer_dims[-1] is processed first.
+        for layer in reversed(self.layers):
             mu, errors, alpha = layer(
                 mu_upper=mu_upper,
                 edge_index=edge_index,
@@ -456,7 +459,7 @@ class PCGAT(nn.Module):
             all_errors.append(errors)
             all_alpha.append(alpha)
 
-            # Pass information downward for the next layer
+            # Pass beliefs and errors downward for the next layer
             mu_upper = mu
             errors_lower = errors
             alpha_lower = alpha
@@ -509,7 +512,9 @@ class PCGAT(nn.Module):
             all_alpha:  Attention weights per layer (output of forward)
             edge_index: Graph edges
         """
-        for l, layer in enumerate(self.layers):
+        # Iterate in the same top→bottom order used by forward so that
+        # all_errors[l] and all_alpha[l] match the layer at position l.
+        for l, layer in enumerate(reversed(self.layers)):
             mu_upper = x if l == 0 else all_mu[l - 1]
             layer.local_weight_update(
                 errors=all_errors[l],
